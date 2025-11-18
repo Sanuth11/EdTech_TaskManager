@@ -1,20 +1,46 @@
+// src/pages/Signup.jsx
 import React, { useState, useEffect } from "react";
-import { authSignup } from "../api";
+import { authSignup, getUsers } from "../api";
 
 export default function Signup({ onSwitch }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("student");
   const [teacherId, setTeacherId] = useState("");
-  const [teacherList, setTeacherList] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Fetch teachers for dropdown
+  // Fetch teachers for dropdown (robust: try getUsers() then fallback to direct fetch)
   useEffect(() => {
-    fetch("http://localhost:5000/auth/teachers")
-      .then((res) => res.json())
-      .then((data) => setTeacherList(data.teachers || []));
+    let mounted = true;
+
+    async function fetchTeachers() {
+      try {
+        // Try API helper first (if present)
+        if (typeof getUsers === "function") {
+          const res = await getUsers("role=teacher"); // expecting { users: [...] } or { teachers: [...] }
+          const list = res?.users || res?.teachers || [];
+          if (mounted) setTeachers(list);
+          return;
+        }
+
+        // Fallback: direct fetch to /auth/teachers
+        const base = import.meta.env.VITE_API_URL || "http://localhost:5000";
+        const r = await fetch(`${base}/auth/teachers`);
+        const data = await r.json();
+        const list = data?.teachers || data?.users || [];
+        if (mounted) setTeachers(list);
+      } catch (e) {
+        console.error("Failed to load teachers", e);
+        if (mounted) setTeachers([]);
+      }
+    }
+
+    fetchTeachers();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -34,7 +60,9 @@ export default function Signup({ onSwitch }) {
       alert("Signup successful! Please login.");
       onSwitch();
     } catch (e) {
-      setErr(e?.message || "Signup failed");
+      // backend error object may vary — handle common shapes
+      const message = e?.message || e?.error || e?.msg || "Signup failed";
+      setErr(message);
     } finally {
       setLoading(false);
     }
@@ -62,6 +90,8 @@ export default function Signup({ onSwitch }) {
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            required
+            type="email"
           />
 
           <input
@@ -70,6 +100,8 @@ export default function Signup({ onSwitch }) {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={6}
           />
 
           {/* Role Selection */}
@@ -99,10 +131,12 @@ export default function Signup({ onSwitch }) {
               className="w-full p-2 border rounded"
               value={teacherId}
               onChange={(e) => setTeacherId(e.target.value)}
+              required
             >
               <option value="">Select Teacher</option>
-              {teacherList.map((t) => (
-                <option key={t._id} value={t._id}>
+              {teachers.length === 0 && <option value="">No teachers available</option>}
+              {teachers.map((t) => (
+                <option key={t._id || t.id} value={t._id || t.id}>
                   {t.email}
                 </option>
               ))}
